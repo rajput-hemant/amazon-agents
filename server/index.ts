@@ -29,11 +29,11 @@ type Options = {
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: Options) => {
-  const { authenticated } = await getUserInfo();
+  const session = await getUserInfo();
 
   return {
     ...opts,
-    authenticated,
+    session,
   };
 };
 
@@ -120,9 +120,9 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
  * @see https://trpc.io/docs/procedures
  */
 export const protectedProcedure = t.procedure.use(async ({ next, ctx }) => {
-  const { authenticated } = ctx;
+  const { session } = ctx;
 
-  if (!authenticated) {
+  if (!session.authenticated) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
     });
