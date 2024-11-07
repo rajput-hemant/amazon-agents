@@ -10,6 +10,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
+import { getUserInfo } from "~/lib/dynamic";
+
 type Options = {
   headers: Headers;
 };
@@ -27,16 +29,11 @@ type Options = {
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: Options) => {
-  const session = {
-    user: {
-      id: "123",
-      name: "John Doe",
-    },
-  };
+  const { authenticated } = await getUserInfo();
 
   return {
     ...opts,
-    session,
+    authenticated,
   };
 };
 
@@ -123,13 +120,13 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
  * @see https://trpc.io/docs/procedures
  */
 export const protectedProcedure = t.procedure.use(async ({ next, ctx }) => {
-  const { session } = ctx;
+  const { authenticated } = ctx;
 
-  if (!session?.user) {
+  if (!authenticated) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
     });
   }
 
-  return next({ ctx: { session } });
+  return next({ ctx });
 });
