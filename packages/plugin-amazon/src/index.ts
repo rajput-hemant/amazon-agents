@@ -1,6 +1,6 @@
 import { Plugin } from "@elizaos/core";
 import { amazonOrderAction } from "./actions/order.ts";
-import { amazonProvider } from "./providers/amazonProvider.ts";
+import { AmazonProvider } from "./providers/amazonProvider.ts";
 import { amazonEvaluator } from "./evaluators/amazonEvaluator.ts";
 
 // Also export individual components
@@ -13,5 +13,5 @@ export const amazonPlugin: Plugin = {
     description: "Plugin for handling Amazon shopping interactions",
     actions: [amazonOrderAction],
     evaluators: [amazonEvaluator],
-    providers: [amazonProvider],
+    providers: [AmazonProvider.getInstance()],
 };

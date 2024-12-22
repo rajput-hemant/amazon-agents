@@ -4,7 +4,7 @@ import {
     Memory,
     type Action,
 } from "@elizaos/core";
-import { amazonProvider } from "../providers/amazonProvider";
+import { AmazonProvider } from "../providers/amazonProvider";
 
 export const amazonOrderAction: Action = {
     name: "AMAZON_ORDER",
@@ -47,15 +47,32 @@ export const amazonOrderAction: Action = {
         message: Memory
     ): Promise<boolean> => {
         try {
+            // Get the Amazon provider instance
+            const amazonProvider = AmazonProvider.getInstance();
+
             // Extract the product query from the message
             const text = message.content.text.toLowerCase();
-            const query = text
-                .replace(/amazon|order|buy|purchase|from|on|at/gi, "")
-                .trim();
+
+            // Extract what's being searched for by removing just the action words
+            let query = text;
+            const removeWords = ["amazon", "from", "on", "at"];
+            removeWords.forEach((word) => {
+                query = query.replace(new RegExp(`\\b${word}\\b`, "gi"), "");
+            });
+            query = query.trim();
+
+            console.log("Original text:", text);
+            console.log("Extracted query:", query);
 
             // Initialize the provider and search for products
             await amazonProvider.init();
             const products = await amazonProvider.searchProduct(query);
+
+            if (products.length > 0) {
+                // Add first product to cart
+                await amazonProvider.addToCart(products[0].link);
+                console.log("Added first product to cart:", products[0].title);
+            }
 
             // Format the results
             const formattedResults = products
@@ -71,7 +88,7 @@ export const amazonOrderAction: Action = {
                 roomId: message.roomId,
                 agentId: runtime.agentId,
                 content: {
-                    text: `HERE ARE SOME GREAT AMERICAN OPTIONS I FOUND ON AMAZON:\n\n${formattedResults}\n\nWHICH ONE WOULD YOU LIKE TO ORDER? (JUST TELL ME THE NUMBER!)`,
+                    text: `I'VE ADDED THE FIRST ITEM TO YOUR CART! HERE ARE ALL THE OPTIONS I FOUND:\n\n${formattedResults}\n\nTHE FIRST ITEM HAS BEEN ADDED TO YOUR CART! WOULD YOU LIKE TO CHECKOUT NOW?`,
                 },
             };
 
@@ -79,7 +96,7 @@ export const amazonOrderAction: Action = {
             await runtime.messageManager.createMemory(responseMemory);
 
             return true;
-        } catch (error) {
+        } catch (error: unknown) {
             console.error("Error in Amazon order handler:", error);
             const errorMemory: Memory = {
                 userId: runtime.agentId,
@@ -92,8 +109,8 @@ export const amazonOrderAction: Action = {
             await runtime.messageManager.createMemory(errorMemory);
             return false;
         } finally {
-            // Clean up browser resources
-            await amazonProvider.cleanup();
+            // Don't cleanup - keep the browser session alive for cookie reuse
+            // await amazonProvider.cleanup();
         }
     },
     examples: [
