@@ -31,6 +31,7 @@
     "@elizaos/core": "workspace:*",
     "@elizaos/plugin-0g": "workspace:*",
     "@elizaos/plugin-aptos": "workspace:*",
+    "@elizaos/plugin-amazon": "workspace:*",
     "@elizaos/plugin-bootstrap": "workspace:*",
     "@elizaos/plugin-intiface": "workspace:*",
     "@elizaos/plugin-coinbase": "workspace:*",
