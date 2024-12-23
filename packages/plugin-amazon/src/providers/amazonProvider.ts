@@ -7,7 +7,6 @@ export class AmazonProvider implements Provider {
     private page: playwright.Page | null = null;
     private runtime: IAgentRuntime | null = null;
     private static instance: AmazonProvider | null = null;
-    private static browserInitializing: boolean = false;
 
     private constructor() {
         // No runtime needed in constructor
@@ -99,21 +98,12 @@ export class AmazonProvider implements Provider {
             console.log("Attempting to login to Amazon...");
             await this.page!.goto("https://www.amazon.com", { timeout: 10000 });
 
-            // Take screenshot before login attempt
-            await this.page!.screenshot({ path: "amazon-before-login.png" });
-            console.log(
-                "Saved pre-login screenshot to amazon-before-login.png"
-            );
-
             // Check if already logged in
             const accountName = await this.page!.textContent(
                 "#nav-link-accountList-nav-line-1"
             );
             if (accountName && !accountName.includes("Hello, sign in")) {
                 console.log("Already logged in as:", accountName);
-                await this.page!.screenshot({
-                    path: "amazon-already-logged-in.png",
-                });
                 return true;
             }
 
@@ -123,7 +113,6 @@ export class AmazonProvider implements Provider {
             // Wait for and fill email
             await this.page!.waitForSelector("#ap_email", { timeout: 5000 });
             await this.page!.fill("#ap_email", process.env.AMAZON_EMAIL || "");
-            await this.page!.screenshot({ path: "amazon-email-filled.png" });
             await this.page!.click("#continue");
 
             // Wait for and fill password
@@ -132,7 +121,6 @@ export class AmazonProvider implements Provider {
                 "#ap_password",
                 process.env.AMAZON_PASSWORD || ""
             );
-            await this.page!.screenshot({ path: "amazon-password-filled.png" });
             await this.page!.click("#signInSubmit");
 
             // Wait for successful login and verify
@@ -145,9 +133,6 @@ export class AmazonProvider implements Provider {
                 !postLoginAccountName.includes("Hello, sign in")
             ) {
                 console.log("Successfully logged in as:", postLoginAccountName);
-                await this.page!.screenshot({
-                    path: "amazon-login-success.png",
-                });
 
                 // Cache cookies after successful login
                 const cookies = await this.context!.cookies();
@@ -156,14 +141,10 @@ export class AmazonProvider implements Provider {
                 return true;
             } else {
                 console.log("Login might have failed, account name not found");
-                await this.page!.screenshot({
-                    path: "amazon-login-failure.png",
-                });
                 return false;
             }
         } catch (error) {
             console.error("Login failed:", error);
-            await this.page!.screenshot({ path: "amazon-login-error.png" });
             return false;
         }
     }
@@ -202,6 +183,16 @@ export class AmazonProvider implements Provider {
 
             // Wait for success confirmation
             await this.page!.waitForTimeout(2000);
+
+            // Check for the side panel and dismiss it if present
+            const sidePanelSelector = "#attach-warranty-pane";
+            const isSidePanelVisible =
+                await this.page!.isVisible(sidePanelSelector);
+            if (isSidePanelVisible) {
+                console.log("Side panel detected, dismissing...");
+                await this.page!.click("#attachSiNoCoverage");
+                console.log("Side panel dismissed");
+            }
 
             // Check for success
             const isSuccess = await this.page!.waitForSelector(
@@ -273,13 +264,26 @@ export class AmazonProvider implements Provider {
                 );
                 if (!products.length) return null;
 
-                // Get the first product
-                const product = products[0];
+                // Filter out sponsored products
+                const nonSponsoredProducts = Array.from(products).filter(
+                    (product) => {
+                        const sponsored = product.querySelector(
+                            "div.s-result-item.AdHolder h2 span"
+                        );
+                        return !sponsored;
+                    }
+                );
+
+                if (!nonSponsoredProducts.length) return null;
+
+                // Get the first non-sponsored product
+                const product = nonSponsoredProducts[0];
 
                 // Find the title link (a tag inside h2)
                 const titleLink = product.querySelector(
                     "a.a-link-normal.s-underline-text.s-underline-link-text.s-link-style.a-text-normal"
                 );
+
                 if (!titleLink) return null;
 
                 // Get the href and title
