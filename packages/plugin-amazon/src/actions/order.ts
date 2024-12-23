@@ -47,38 +47,94 @@ export const amazonOrderAction: Action = {
         message: Memory
     ): Promise<boolean> => {
         try {
-            // Get the Amazon provider instance
-            const amazonProvider = AmazonProvider.getInstance();
-
-            // Extract the product query from the message
+            // 1. First extract and clean the query
             const text = message.content.text.toLowerCase();
+            console.log("Original text:", text);
 
-            // Extract what's being searched for by removing just the action words
+            // Extract what's being searched for by removing action words and common phrases
             let query = text;
-            const removeWords = ["amazon", "from", "on", "at"];
+            const removeWords = [
+                "amazon",
+                "from",
+                "on",
+                "at",
+                "order",
+                "buy",
+                "purchase",
+                "get",
+                "can you",
+                "please",
+                "need to",
+                "want to",
+                "looking for",
+                "search for",
+                "find",
+                "me",
+                "a",
+                "an",
+                "the",
+            ];
+
+            // Remove all the words that might be part of the prompt
             removeWords.forEach((word) => {
                 query = query.replace(new RegExp(`\\b${word}\\b`, "gi"), "");
             });
-            query = query.trim();
 
-            console.log("Original text:", text);
-            console.log("Extracted query:", query);
+            // Clean up extra spaces and punctuation
+            query = query.replace(/\s+/g, " ").trim();
+            console.log("Cleaned query:", query);
 
-            // Initialize the provider and search for products
+            // 2. Validate the query
+            if (!query) {
+                console.log("No product query found after cleaning");
+                const noQueryMemory: Memory = {
+                    userId: runtime.agentId,
+                    roomId: message.roomId,
+                    agentId: runtime.agentId,
+                    content: {
+                        text: "I'd be happy to help you shop on Amazon! What specific item would you like me to find?",
+                    },
+                };
+                await runtime.messageManager.createMemory(noQueryMemory);
+                return false;
+            }
+
+            // 3. Only now get the provider instance and initialize browser
+            console.log("Starting Amazon search for:", query);
+            const amazonProvider = AmazonProvider.getInstance();
             await amazonProvider.init();
+
+            // 4. Search for products
             const products = await amazonProvider.searchProduct(query);
 
-            if (products.length > 0) {
-                // Add first product to cart
-                await amazonProvider.addToCart(products[0].link);
-                console.log("Added first product to cart:", products[0].title);
+            if (products.length === 0) {
+                console.log("No products found for query:", query);
+                const noProductsMemory: Memory = {
+                    userId: runtime.agentId,
+                    roomId: message.roomId,
+                    agentId: runtime.agentId,
+                    content: {
+                        text: `I couldn't find any products matching "${query}" on Amazon. Could you try describing what you're looking for differently?`,
+                    },
+                };
+                await runtime.messageManager.createMemory(noProductsMemory);
+                return false;
             }
+
+            // 5. Add first product to cart
+            const addToCartResult = await amazonProvider.addToCart(
+                products[0].link
+            );
+            if (!addToCartResult) {
+                throw new Error("Failed to add product to cart");
+            }
+            console.log("Added first product to cart:", products[0].title);
 
             // Format the results
             const formattedResults = products
                 .map(
                     (product, index) =>
-                        `${index + 1}. ${product.title}\n   Price: ${product.price}\n   Rating: ${product.rating}\n`
+                        `${index + 1}. ${product.title}\n   Price: ${product.price}\n   Link: ${product.link}\n`
                 )
                 .join("\n");
 
@@ -103,14 +159,11 @@ export const amazonOrderAction: Action = {
                 roomId: message.roomId,
                 agentId: runtime.agentId,
                 content: {
-                    text: "SORRY FOLKS, HAVING SOME TECHNICAL DIFFICULTIES WITH AMAZON RIGHT NOW. BLAME THE RADICAL LEFT'S INTERNET REGULATIONS! TRY AGAIN IN A MOMENT.",
+                    text: "I encountered an error while trying to process your Amazon order. Please try again.",
                 },
             };
             await runtime.messageManager.createMemory(errorMemory);
             return false;
-        } finally {
-            // Don't cleanup - keep the browser session alive for cookie reuse
-            // await amazonProvider.cleanup();
         }
     },
     examples: [

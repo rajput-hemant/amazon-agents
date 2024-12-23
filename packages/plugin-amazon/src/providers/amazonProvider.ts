@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { IAgentRuntime, Memory, Provider } from "@elizaos/core";
 import playwright from "playwright";
 
@@ -8,6 +7,7 @@ export class AmazonProvider implements Provider {
     private page: playwright.Page | null = null;
     private runtime: IAgentRuntime | null = null;
     private static instance: AmazonProvider | null = null;
+    private static browserInitializing: boolean = false;
 
     private constructor() {
         // No runtime needed in constructor
@@ -55,27 +55,39 @@ export class AmazonProvider implements Provider {
     }
 
     async init() {
-        if (!this.browser) {
-            console.log("Initializing browser for Amazon search...");
-            this.browser = await playwright.chromium.launch({
-                headless: true,
-                args: ["--no-sandbox", "--disable-setuid-sandbox"],
-            });
-            this.context = await this.browser.newContext({
-                userAgent:
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            });
-
-            // Try to load cached cookies
-            const cachedCookies = await this.getCachedCookies();
-            if (cachedCookies) {
-                await this.setCookiesFromArray(cachedCookies);
-                console.log("Loaded cached cookies");
-            }
-
-            this.page = await this.context.newPage();
-            await this.page.setViewportSize({ width: 1280, height: 800 });
+        if (this.browser) {
+            console.log(
+                "Browser already initialized, reusing existing instance"
+            );
+            return;
         }
+
+        console.log("Initializing browser for Amazon search...");
+        this.browser = await playwright.chromium.launch({
+            headless: false,
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--window-size=1280,800",
+                "--start-maximized",
+            ],
+        });
+
+        this.context = await this.browser.newContext({
+            viewport: { width: 1280, height: 800 },
+            userAgent:
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        });
+
+        // Try to load cached cookies
+        const cachedCookies = await this.getCachedCookies();
+        if (cachedCookies) {
+            await this.setCookiesFromArray(cachedCookies);
+            console.log("Loaded cached cookies");
+        }
+
+        this.page = await this.context.newPage();
+        await this.page.setViewportSize({ width: 1280, height: 800 });
     }
 
     async login() {
@@ -84,49 +96,74 @@ export class AmazonProvider implements Provider {
         }
 
         try {
-            // Check if already logged in using cached cookies
+            console.log("Attempting to login to Amazon...");
             await this.page!.goto("https://www.amazon.com", { timeout: 10000 });
-            const isLoggedIn = await this.page!.evaluate(() => {
-                return (
-                    document
-                        .querySelector("#nav-link-accountList-nav-line-1")
-                        ?.textContent?.includes("Hello, Sign in") === false
-                );
-            });
 
-            if (isLoggedIn) {
-                console.log("Already logged in via cookies");
+            // Take screenshot before login attempt
+            await this.page!.screenshot({ path: "amazon-before-login.png" });
+            console.log(
+                "Saved pre-login screenshot to amazon-before-login.png"
+            );
+
+            // Check if already logged in
+            const accountName = await this.page!.textContent(
+                "#nav-link-accountList-nav-line-1"
+            );
+            if (accountName && !accountName.includes("Hello, sign in")) {
+                console.log("Already logged in as:", accountName);
+                await this.page!.screenshot({
+                    path: "amazon-already-logged-in.png",
+                });
                 return true;
             }
 
-            console.log("Logging into Amazon...");
+            console.log("Not logged in, proceeding with login...");
             await this.page!.click("#nav-link-accountList");
+
+            // Wait for and fill email
             await this.page!.waitForSelector("#ap_email", { timeout: 5000 });
             await this.page!.fill("#ap_email", process.env.AMAZON_EMAIL || "");
-            await this.page!.waitForTimeout(1000);
+            await this.page!.screenshot({ path: "amazon-email-filled.png" });
             await this.page!.click("#continue");
+
+            // Wait for and fill password
             await this.page!.waitForSelector("#ap_password", { timeout: 5000 });
             await this.page!.fill(
                 "#ap_password",
                 process.env.AMAZON_PASSWORD || ""
             );
-            await this.page!.waitForTimeout(1000);
+            await this.page!.screenshot({ path: "amazon-password-filled.png" });
             await this.page!.click("#signInSubmit");
 
-            // Wait for successful login
-            await this.page!.waitForSelector(
-                "#nav-link-accountList-nav-line-1",
-                { timeout: 5000 }
+            // Wait for successful login and verify
+            await this.page!.waitForTimeout(3000); // Give extra time for login
+            const postLoginAccountName = await this.page!.textContent(
+                "#nav-link-accountList-nav-line-1"
             );
+            if (
+                postLoginAccountName &&
+                !postLoginAccountName.includes("Hello, sign in")
+            ) {
+                console.log("Successfully logged in as:", postLoginAccountName);
+                await this.page!.screenshot({
+                    path: "amazon-login-success.png",
+                });
 
-            // Cache cookies after successful login
-            const cookies = await this.context!.cookies();
-            await this.cacheCookies(cookies);
+                // Cache cookies after successful login
+                const cookies = await this.context!.cookies();
+                await this.cacheCookies(cookies);
 
-            console.log("Login completed and cookies cached");
-            return true;
-        } catch (error: unknown) {
+                return true;
+            } else {
+                console.log("Login might have failed, account name not found");
+                await this.page!.screenshot({
+                    path: "amazon-login-failure.png",
+                });
+                return false;
+            }
+        } catch (error) {
             console.error("Login failed:", error);
+            await this.page!.screenshot({ path: "amazon-login-error.png" });
             return false;
         }
     }
@@ -138,42 +175,49 @@ export class AmazonProvider implements Provider {
             }
 
             console.log("Adding product to cart...");
-            // Navigate to product page with a timeout
-            await this.page!.goto(`https://www.amazon.com${productLink}`, {
-                timeout: 10000,
-                waitUntil: "networkidle",
+            console.log("Product link:", productLink);
+
+            // Navigate to product page
+            const productUrl = `https://www.amazon.com${productLink}`;
+            console.log("Navigating to:", productUrl);
+
+            await this.page!.goto(productUrl, {
+                timeout: 30000,
+                waitUntil: "domcontentloaded",
             });
 
-            // Wait for and click add to cart button
-            await this.page!.waitForSelector("#add-to-cart-button", {
-                timeout: 5000,
-            });
-            await this.page!.click("#add-to-cart-button");
-
-            // Wait for confirmation - try different selectors
-            try {
-                await Promise.race([
-                    this.page!.waitForSelector("#nav-cart-count", {
-                        state: "visible",
-                        timeout: 5000,
-                    }),
-                    this.page!.waitForSelector(".a-size-medium-plus", {
-                        state: "visible",
-                        timeout: 5000,
-                    }),
-                    this.page!.waitForSelector(
-                        "#NATC_SMART_WAGON_CONF_MSG_SUCCESS",
-                        { state: "visible", timeout: 5000 }
-                    ),
-                ]);
-            } catch (error) {
-                console.log(
-                    "Couldn't find standard confirmation, but continuing..."
-                );
+            // Wait for the add to cart button
+            const addToCartButton = await this.page!.waitForSelector(
+                "#add-to-cart-button",
+                { timeout: 10000 }
+            );
+            if (!addToCartButton) {
+                console.error("Add to cart button not found");
+                return false;
             }
 
-            console.log("Product added to cart");
-            return true;
+            // Click the button
+            await addToCartButton.click();
+            console.log("Clicked add to cart button");
+
+            // Wait for success confirmation
+            await this.page!.waitForTimeout(2000);
+
+            // Check for success
+            const isSuccess = await this.page!.waitForSelector(
+                "#nav-cart-count",
+                { timeout: 5000 }
+            )
+                .then(() => true)
+                .catch(() => false);
+
+            if (isSuccess) {
+                console.log("Successfully added to cart");
+                return true;
+            }
+
+            console.error("Could not confirm item was added to cart");
+            return false;
         } catch (error) {
             console.error("Error adding to cart:", error);
             return false;
@@ -186,8 +230,15 @@ export class AmazonProvider implements Provider {
                 await this.init();
             }
 
-            // Try to login, but continue even if it fails
-            await this.login();
+            // Try to login only if not already logged in
+            const isLoggedIn = await this.isLoggedIn();
+            if (!isLoggedIn) {
+                console.log("Not logged in, attempting login...");
+                const loginSuccess = await this.login();
+                if (!loginSuccess) {
+                    throw new Error("Failed to login to Amazon");
+                }
+            }
 
             console.log(`Searching Amazon for: ${query}`);
             await this.page!.goto("https://www.amazon.com", {
@@ -197,90 +248,65 @@ export class AmazonProvider implements Provider {
 
             // Wait for and fill search box
             const searchBoxSelector = "#twotabsearchtextbox";
-            await this.page!.waitForSelector(searchBoxSelector, {
-                timeout: 5000,
-            });
-
-            // Clear the search box first
+            await this.page!.waitForSelector(searchBoxSelector);
             await this.page!.fill(searchBoxSelector, "");
-            await this.page!.waitForTimeout(500);
             await this.page!.fill(searchBoxSelector, query);
-            await this.page!.waitForTimeout(500);
-
-            // Click search and wait for results
             await this.page!.click("#nav-search-submit-button");
 
-            // Wait for either search results or no results message
-            await Promise.race([
-                this.page!.waitForSelector(
-                    '[data-component-type="s-search-result"]',
-                    { timeout: 10000 }
-                ),
-                this.page!.waitForSelector(".s-no-results-result", {
-                    timeout: 10000,
-                }),
-            ]);
+            console.log("Waiting for search results...");
 
-            // Check if we got any results
-            const noResults = await this.page!.$(".s-no-results-result");
-            if (noResults) {
-                console.log("No results found for query");
-                return [];
-            }
+            // Wait for results to load
+            await this.page!.waitForSelector(
+                'div[data-component-type="s-search-result"]',
+                { timeout: 10000 }
+            );
+            console.log("Search results loaded");
 
             // Take a small pause to let all results load
             await this.page!.waitForTimeout(2000);
 
-            // Extract product information
-            const products = await this.page!.$$eval(
-                '[data-component-type="s-search-result"]',
-                (elements) =>
-                    elements.slice(0, 5).map((el) => ({
-                        title:
-                            el.querySelector("h2")?.textContent?.trim() || "",
-                        price:
-                            el
-                                .querySelector(".a-price-whole")
-                                ?.textContent?.trim() ||
-                            el.querySelector(".a-price")?.textContent?.trim() ||
-                            "",
-                        rating:
-                            el
-                                .querySelector(".a-icon-star-small")
-                                ?.textContent?.trim() ||
-                            el
-                                .querySelector(".a-icon-star")
-                                ?.textContent?.trim() ||
-                            "",
-                        link:
-                            el.querySelector("h2 a")?.getAttribute("href") ||
-                            "",
-                    }))
-            );
-
-            console.log(`Found ${products.length} products`);
-
-            // Save cookies after successful search
-            if (this.context) {
-                const cookies = await this.context.cookies();
-                console.log(
-                    `Saving ${cookies.length} cookies after successful search`
+            // Get product details using the correct selectors
+            const firstProduct = await this.page!.evaluate(() => {
+                // Find all product results
+                const products = document.querySelectorAll(
+                    'div[data-component-type="s-search-result"]'
                 );
-                await this.cacheCookies(cookies);
+                if (!products.length) return null;
+
+                // Get the first product
+                const product = products[0];
+
+                // Find the title link (a tag inside h2)
+                const titleLink = product.querySelector(
+                    "a.a-link-normal.s-underline-text.s-underline-link-text.s-link-style.a-text-normal"
+                );
+                if (!titleLink) return null;
+
+                // Get the href and title
+                const link = titleLink.getAttribute("href");
+                const title = titleLink.textContent?.trim();
+
+                // Get the price
+                const priceElement = product.querySelector(
+                    ".a-price .a-offscreen"
+                );
+                const price = priceElement
+                    ? priceElement.textContent?.trim()
+                    : "";
+
+                console.log("Found product:", { title, link, price });
+                return { title, link, price };
+            });
+
+            if (!firstProduct || !firstProduct.link) {
+                console.log("No valid product found");
+                return [];
             }
 
-            return products;
+            console.log("Successfully extracted product:", firstProduct);
+            return [firstProduct];
         } catch (error) {
             console.error("Error searching Amazon:", error);
-            // Try to save a screenshot for debugging
-            if (this.page) {
-                try {
-                    await this.page.screenshot({ path: "amazon-error.png" });
-                    console.log("Saved error screenshot to amazon-error.png");
-                } catch (e) {
-                    console.error("Failed to save error screenshot:", e);
-                }
-            }
             throw error;
         }
     }
@@ -296,6 +322,20 @@ export class AmazonProvider implements Provider {
             }
         } catch (error) {
             console.error("Error cleaning up browser:", error);
+        }
+    }
+
+    private async isLoggedIn(): Promise<boolean> {
+        if (!this.page) return false;
+
+        try {
+            const accountName = await this.page.textContent(
+                "#nav-link-accountList-nav-line-1"
+            );
+            return !!(accountName && !accountName.includes("Hello, sign in"));
+        } catch (error) {
+            console.error("Error checking login status:", error);
+            return false;
         }
     }
 }
