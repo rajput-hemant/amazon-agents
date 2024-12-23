@@ -328,7 +328,7 @@ export class AmazonProvider implements Provider {
         }
     }
 
-    private async isLoggedIn(): Promise<boolean> {
+    async isLoggedIn(): Promise<boolean> {
         if (!this.page) return false;
 
         try {
@@ -338,6 +338,54 @@ export class AmazonProvider implements Provider {
             return !!(accountName && !accountName.includes("Hello, sign in"));
         } catch (error) {
             console.error("Error checking login status:", error);
+            return false;
+        }
+    }
+
+    async proceedToCheckout(): Promise<boolean> {
+        try {
+            if (!this.page) {
+                await this.init();
+            }
+
+            console.log("Navigating to cart...");
+            await this.page!.goto("https://www.amazon.com/gp/cart/view.html", {
+                timeout: 10000,
+                waitUntil: "domcontentloaded",
+            });
+
+            // Check if cart is empty
+            const emptyCartMessage = await this.page!.$(
+                "h1.sc-empty-cart-header"
+            );
+            if (emptyCartMessage) {
+                console.log("Cart is empty");
+                return false;
+            }
+
+            // Wait for and click the proceed to checkout button
+            console.log("Looking for checkout button...");
+            const checkoutButton = await this.page!.waitForSelector(
+                "input[name='proceedToRetailCheckout']",
+                { timeout: 5000 }
+            );
+
+            if (!checkoutButton) {
+                console.log("Checkout button not found");
+                return false;
+            }
+
+            // Click the checkout button
+            await checkoutButton.click();
+            console.log("Clicked checkout button");
+
+            // Wait for checkout page to load
+            await this.page!.waitForURL("**/checkout/**", { timeout: 10000 });
+            console.log("Successfully navigated to checkout");
+
+            return true;
+        } catch (error) {
+            console.error("Error proceeding to checkout:", error);
             return false;
         }
     }
