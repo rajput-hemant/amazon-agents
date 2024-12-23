@@ -19,11 +19,10 @@ export class AmazonProvider implements Provider {
         return AmazonProvider.instance;
     }
 
-    async get(runtime: IAgentRuntime, message: Memory): Promise<string> {
-        this.runtime = runtime;
-        const query = message.content.text;
-        const products = await this.searchProduct(query);
-        return JSON.stringify(products);
+    async get(_runtime: IAgentRuntime, _message: Memory): Promise<string> {
+        // Don't perform search in get method, just return empty array
+        // The actual search will be handled by the action handler
+        return JSON.stringify([]);
     }
 
     private async getCachedCookies(): Promise<any[] | null> {

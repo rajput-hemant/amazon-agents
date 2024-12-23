@@ -6,7 +6,7 @@ export const amazonOrderAction: Action = {
     name: "AMAZON_ORDER",
     description:
         "Handle requests to order items from Amazon. This action is triggered when users want to purchase something from Amazon.",
-
+    preventDefaultResponse: true,
     similes: [
         "ORDER_FROM_AMAZON",
         "BUY_FROM_AMAZON",
@@ -27,6 +27,18 @@ export const amazonOrderAction: Action = {
     },
     handler: async (runtime, message): Promise<boolean> => {
         try {
+            // First, send an acknowledgment
+            await runtime.messageManager.createMemory({
+                userId: runtime.agentId,
+                roomId: message.roomId,
+                agentId: runtime.agentId,
+                content: {
+                    text: "I'll help you find that on Amazon. Let me search...",
+                    action: "AMAZON_ORDER",
+                },
+            });
+
+            // Extract the query
             const template = `
             You are a helpful assistant that can help me shop on Amazon.
             Extract out the product and any relevant information from the following text:
@@ -46,16 +58,16 @@ export const amazonOrderAction: Action = {
             });
 
             if (!query) {
-                console.log("No product query found after cleaning");
                 await runtime.messageManager.createMemory({
                     userId: runtime.agentId,
                     roomId: message.roomId,
                     agentId: runtime.agentId,
                     content: {
-                        text: "I'd be happy to help you shop on Amazon! What specific item would you like me to find?",
+                        text: "Could you please specify what exactly you're looking for on Amazon?",
+                        action: "AMAZON_ORDER",
                     },
                 });
-                return false;
+                return true;
             }
 
             console.log("Starting Amazon search for:", query);
@@ -65,39 +77,49 @@ export const amazonOrderAction: Action = {
             const products = await amazonProvider.searchProduct(query);
 
             if (products.length === 0) {
-                console.log("No products found for query:", query);
                 await runtime.messageManager.createMemory({
                     userId: runtime.agentId,
                     roomId: message.roomId,
                     agentId: runtime.agentId,
                     content: {
                         text: `I couldn't find any products matching "${query}" on Amazon. Could you try describing what you're looking for differently?`,
+                        action: "AMAZON_ORDER",
                     },
                 });
-                return false;
+                return true;
             }
 
+            // Try to add the first product to cart
             const addToCartResult = await amazonProvider.addToCart(
                 products[0].link
             );
 
-            if (!addToCartResult) {
-                throw new Error("Failed to add product to cart");
-            }
-
+            // Format product results with better structure
             const formattedResults = products
-                .map(
-                    ({ title, link, price }, i) =>
-                        `${i + 1}. ${title}\n   Price: ${price}\n   Link: ${link}\n`
-                )
-                .join("\n");
+                .map(({ title, price }, i) => {
+                    const cleanTitle = title.replace(/\s+/g, " ").trim();
+                    const cleanPrice = price.replace(/\$+/g, "$").trim();
+                    return `${i + 1}. ${cleanTitle}\n   Price: ${cleanPrice}`;
+                })
+                .join("\n\n");
 
+            // Create the final message
             await runtime.messageManager.createMemory({
                 userId: runtime.agentId,
                 roomId: message.roomId,
                 agentId: runtime.agentId,
                 content: {
-                    text: `I'VE ADDED THE FIRST ITEM TO YOUR CART! HERE ARE ALL THE OPTIONS I FOUND:\n\n${formattedResults}\n\nTHE FIRST ITEM HAS BEEN ADDED TO YOUR CART! WOULD YOU LIKE TO CHECKOUT NOW?`,
+                    text: `Here are the products I found on Amazon:\n\n${formattedResults}\n\n${
+                        addToCartResult
+                            ? "I've successfully added the item to your cart. Would you like to proceed to checkout?"
+                            : "I found these items but couldn't add them to cart automatically. Would you like to view them on Amazon?"
+                    }`,
+                    action: "AMAZON_ORDER",
+                    metadata: {
+                        products,
+                        addedToCart: addToCartResult,
+                        searchQuery: query,
+                    },
                 },
             });
 
@@ -109,7 +131,8 @@ export const amazonOrderAction: Action = {
                 roomId: message.roomId,
                 agentId: runtime.agentId,
                 content: {
-                    text: "I encountered an error while trying to process your Amazon order. Please try again.",
+                    text: "I encountered an error while searching Amazon. Please try again.",
+                    action: "AMAZON_ORDER",
                 },
             });
             return false;
