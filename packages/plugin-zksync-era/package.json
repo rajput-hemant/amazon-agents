@@ -7,9 +7,9 @@
   "dependencies": {
     "@elizaos/core": "workspace:*",
     "@elizaos/plugin-trustdb": "workspace:*",
-    "tsup": "^8.3.5",
-    "web3": "^4.15.0",
-    "web3-plugin-zksync": "^1.0.8"
+    "tsup": "8.3.5",
+    "web3": "4.16.0",
+    "web3-plugin-zksync": "1.0.8"
   },
   "scripts": {
     "build": "tsup --format esm --dts"

@@ -8,11 +8,11 @@
     "@elizaos/core": "workspace:*",
     "@lens-protocol/client": "2.2.0",
     "@lens-protocol/metadata": "1.2.0",
-    "axios": "^1.7.9",
-    "viem": "^2.13.8"
+    "axios": "1.7.9",
+    "viem": "2.21.54"
   },
   "devDependencies": {
-    "tsup": "^8.3.5"
+    "tsup": "8.3.5"
   },
   "peerDependencies": {
     "@elizaos/core": "workspace:*"
