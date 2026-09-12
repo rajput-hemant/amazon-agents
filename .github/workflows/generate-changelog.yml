@@ -9,7 +9,7 @@ jobs:
         permissions:
             contents: write
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v4.4.0
               with:
                   ref: main
                   token: ${{ secrets.CHANGELOG_GITHUB_TOKEN }}
@@ -22,7 +22,7 @@ jobs:
                     -p ${{ github.event.repository.name }} \
                     --token ${{ secrets.CHANGELOG_GITHUB_TOKEN }}
             - name: Commit Changelog
-              uses: stefanzweifel/git-auto-commit-action@v5
+              uses: stefanzweifel/git-auto-commit-action@v5.2.0
               with:
                   commit_message: "chore: update changelog"
                   branch: main
