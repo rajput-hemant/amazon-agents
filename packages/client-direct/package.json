@@ -10,7 +10,7 @@
     "@types/body-parser": "1.19.5",
     "@types/cors": "2.8.17",
     "@types/express": "5.0.0",
-    "body-parser": "1.20.3",
+    "body-parser": "1.20.6",
     "cors": "2.8.5",
     "discord.js": "14.16.3",
     "express": "4.21.1",
