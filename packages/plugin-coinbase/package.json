@@ -8,13 +8,13 @@
     "@elizaos/core": "workspace:*",
     "coinbase-api": "1.0.5",
     "coinbase-advanced-sdk": "file:../../packages/plugin-coinbase/advanced-sdk-ts",
-    "jsonwebtoken": "^9.0.2",
-    "@types/jsonwebtoken": "^9.0.7",
-    "node-fetch": "^2.6.1"
+    "jsonwebtoken": "9.0.2",
+    "@types/jsonwebtoken": "9.0.7",
+    "node-fetch": "2.7.0"
   },
   "devDependencies": {
     "tsup": "8.3.5",
-    "@types/node": "^20.0.0"
+    "@types/node": "20.17.9"
   },
   "scripts": {
     "build": "tsup --format esm --dts",
